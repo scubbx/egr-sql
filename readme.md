@@ -12,7 +12,7 @@ The excess granule removal as performed by the GeoServer implementation is opera
 
 ## The Procedere
 
-The query is separated into two parts, each is producing a view. Only the first one is a materialized view with two inices, the second one can be materialized, but is not in this example.
+The query is separated into two parts (and an optional third part), each is producing a view. Only the first one is a mandatory materialized view with two inices, the second one can be materialized, but is not in this example.
 Both queries can be merged into one single query, but one looses a certain speed-benefit when creating multiple egr-layers for different timestamps (I will explain on that later).
 
 ### Table layout
@@ -57,30 +57,35 @@ Two incices are calculated to help the following steps improve in speed.
 
 With the second view, only the most recent splitgranule per common area is taken. After that, all splitgranules sharing the same granule_id are merged again.
 
-The result is a table showing the current coverage of the most-recent areas contributing to the total coverage.
+The result is a table showing the current coverage of the most-recent areas contributing to the total coverage. Additionally to that, information lost by the merge is joined again.
 
 [egr_latest.sql](https://github.com/scubbx/egr-sql/blob/master/egr_latest.sql)
 
 ```SQL
 CREATE VIEW egr_latest AS
-SELECT st_union(the_geom), granule_id FROM (
+SELECT DISTINCT st_union(a.the_geom) as geom, b.granule_id, b.granule_time FROM (
 
 SELECT
   *,
   ROW_NUMBER() OVER w AS rnum
-FROM
-  egr_all
-WINDOW w AS (
-  PARTITION BY the_geom
-  ORDER BY granule_time DESC, granule_id DESC
-)
+  FROM
+    egr_all
+  WINDOW w AS (
+    PARTITION BY the_geom
+    ORDER BY granule_time DESC, granule_id DESC
+  )
+  ) a,
+  originalgranules b
 
-) t
-WHERE t.rnum = 1
-GROUP BY granule_id;
+WHERE
+    a.rnum = 1
+    AND a.location = b.location
+GROUP BY
+    b.granule_id,
+    b.granule_time;
 ```
 
-### Optional: Not recent coverage
+#### Optional: Not recent coverage
 
 By using a slight variation of the second view, it is possible to select the coverage of a certain time or time-span.
 
